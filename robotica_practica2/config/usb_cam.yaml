@@ -1,0 +1,13 @@
+# Parámetros del nodo usb_cam (cámara USB del laboratorio)
+/**:
+  ros__parameters:
+    video_device: '/dev/video0'      # dispositivo de la webcam
+    framerate: 30.0                  # imágenes por segundo
+    io_method: 'mmap'                # forma de leer el dispositivo (la más eficiente)
+    frame_id: 'camara'               # sistema de referencia de las imágenes
+    pixel_format: 'mjpeg2rgb'        # la cámara envía MJPEG y se convierte a RGB
+    av_device_format: 'YUV422P'
+    image_width: 640
+    image_height: 480
+    camera_name: 'camara_practica2'  # debe coincidir con el nombre de la calibración (Tarea 3)
+    camera_info_url: ''              # se rellenará en la Tarea 3 con el archivo de calibración

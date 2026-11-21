@@ -3,12 +3,21 @@
 <package format="3">
   <name>robotica_practica2</name>
   <version>0.0.0</version>
-  <description>Práctica 2: ingesta, calibración y procesamiento de imágenes con usb_cam y OpenCV</description>  <maintainer email="ainara.maroto@opendeusto.es">Ainara Maroto</maintainer>
+  <description>Práctica 2: ingesta, calibración y procesamiento de imágenes con usb_cam y OpenCV</description>
+  <maintainer email="ainara.maroto@opendeusto.es">Ainara Maroto</maintainer>
   <license>MIT</license>
 
   <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
   <depend>cv_bridge</depend>
+
+  <exec_depend>usb_cam</exec_depend>
+  <exec_depend>rqt_image_view</exec_depend>
+  <exec_depend>camera_calibration</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
