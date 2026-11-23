@@ -35,6 +35,20 @@ ARCHIVO_CALIBRACION: str = 'calibracion_camara.yaml'  # generado en la tarea 3
 # dentro y aparecen zonas negras. ALPHA decide qué hacer con ellas: 0 recorta la
 # imagen para que no haya zonas negras; 1 conserva todos los píxeles originales
 ALPHA_CORRECCION: float = 0.0
+# Para corregir en directo solo interesa la imagen más reciente: con cola 1, si el
+# procesado va más lento que la cámara, se descartan las viejas en vez de acumularse
+TAMANO_COLA_DIRECTO: int = 1
+TOPIC_IMAGEN_COMPARACION: str = '/image_comparacion'
+CARPETA_COMPARACION: str = os.path.expanduser('~/ros_workspace/comparacion_practica2')
+NOMBRE_COMPARACION: str = 'comparacion.png'
+# La comparación pone las dos imágenes lado a lado; se reducen a la mitad para que
+# la imagen resultante (dos de 1280x720) no sea demasiado grande
+ESCALA_COMPARACION: float = 0.5
+# Rótulos "Original" y "Corregida" sobre cada mitad (color en BGR: verde)
+POSICION_TEXTO: Tuple[int, int] = (15, 35)
+ESCALA_TEXTO: float = 1.0
+GROSOR_TEXTO: int = 2
+COLOR_TEXTO: Tuple[int, int, int] = (0, 255, 0)
 
 
 # TAREA 2: suscriptor e ingesta de imágenes
@@ -114,14 +128,22 @@ class CorrectorImagen(Node):
         self._tamano_calibracion: Tuple[int, int]
         self._cargar_calibracion(ruta)
         self._puente: CvBridge = CvBridge()
-        # Matriz de la cámara tras corregir; depende del tamaño de imagen, así que
-        # se calcula una sola vez, al llegar la primera imagen
-        self._matriz_corregida: Optional[np.ndarray] = None
+        # Mapas de corrección (a dónde va cada píxel); dependen del tamaño de la
+        # imagen, así que se calculan una sola vez, al llegar la primera
+        self._mapa_x: Optional[np.ndarray] = None
+        self._mapa_y: Optional[np.ndarray] = None
         self._publicador = self.create_publisher(Image, TOPIC_IMAGEN_CORREGIDA, TAMANO_COLA)
-        self.create_subscription(Image, TOPIC_IMAGEN, self._recibir_imagen, TAMANO_COLA)
+        self._publicador_comparacion = self.create_publisher(
+            Image, TOPIC_IMAGEN_COMPARACION, TAMANO_COLA
+        )
+        # Última comparación antes/después, para guardarla en disco al terminar
+        self._ultima_comparacion: Optional[np.ndarray] = None
+        self.create_subscription(
+            Image, TOPIC_IMAGEN, self._recibir_imagen, TAMANO_COLA_DIRECTO
+        )
         self.get_logger().info(
             f'Calibración cargada de {ruta}; publicando la imagen corregida en '
-            f'{TOPIC_IMAGEN_CORREGIDA}'
+            f'{TOPIC_IMAGEN_CORREGIDA} y la comparación en {TOPIC_IMAGEN_COMPARACION}'
         )
 
     def _cargar_calibracion(self, ruta: str) -> None:
@@ -152,23 +174,62 @@ class CorrectorImagen(Node):
         salida.header = mensaje.header  # misma marca de tiempo que la imagen original
         self._publicador.publish(salida)
 
+        # Comparación antes/después, para ver el efecto de la corrección
+        comparacion: np.ndarray = self._componer_comparacion(imagen, corregida)
+        mensaje_comparacion: Image = self._puente.cv2_to_imgmsg(
+            comparacion, encoding=CODIFICACION_OPENCV
+        )
+        mensaje_comparacion.header = mensaje.header
+        self._publicador_comparacion.publish(mensaje_comparacion)
+        self._ultima_comparacion = comparacion
+
     def _corregir(self, imagen: np.ndarray) -> np.ndarray:
-        """Elimina la distorsión de la lente con cv2.undistort."""
-        alto, ancho = imagen.shape[:2]
-        if self._matriz_corregida is None:
+        """Elimina la distorsión de la lente con los mapas de corrección de OpenCV."""
+        if self._mapa_x is None or self._mapa_y is None:
+            alto, ancho = imagen.shape[:2]
             # La calibración solo es válida para la resolución con la que se hizo
             if (ancho, alto) != self._tamano_calibracion:
                 self.get_logger().warn(
                     f'La imagen es de {ancho}x{alto} pero la calibración es de '
                     f'{self._tamano_calibracion[0]}x{self._tamano_calibracion[1]}'
                 )
-            self._matriz_corregida, _ = cv2.getOptimalNewCameraMatrix(
+            matriz_corregida, _ = cv2.getOptimalNewCameraMatrix(
                 self._matriz_camara, self._distorsion, (ancho, alto),
                 ALPHA_CORRECCION, (ancho, alto)
             )
-        return cv2.undistort(
-            imagen, self._matriz_camara, self._distorsion, None, self._matriz_corregida
-        )
+            # Calcular a dónde va cada píxel es lo costoso: se hace una sola vez y
+            # después cada imagen solo se "recoloca" con remap, que es muy rápido.
+            # Es lo mismo que hace cv2.undistort por dentro, pero sin repetirlo
+            self._mapa_x, self._mapa_y = cv2.initUndistortRectifyMap(
+                self._matriz_camara, self._distorsion, None, matriz_corregida,
+                (ancho, alto), cv2.CV_32FC1
+            )
+        return cv2.remap(imagen, self._mapa_x, self._mapa_y, cv2.INTER_LINEAR)
+
+    @staticmethod
+    def _componer_comparacion(original: np.ndarray, corregida: np.ndarray) -> np.ndarray:
+        """Pone la imagen original y la corregida lado a lado, cada una con su rótulo."""
+        mitades: List[np.ndarray] = []
+        for imagen, rotulo in ((original, 'Original'), (corregida, 'Corregida')):
+            reducida: np.ndarray = cv2.resize(
+                imagen, None, fx=ESCALA_COMPARACION, fy=ESCALA_COMPARACION
+            )
+            cv2.putText(
+                reducida, rotulo, POSICION_TEXTO, cv2.FONT_HERSHEY_SIMPLEX,
+                ESCALA_TEXTO, COLOR_TEXTO, GROSOR_TEXTO
+            )
+            mitades.append(reducida)
+        return cv2.hconcat(mitades)
+
+    def guardar_comparacion(self) -> None:
+        """Guarda en disco la última comparación antes/después, si la hay."""
+        if self._ultima_comparacion is None:
+            self.get_logger().warn('No ha llegado ninguna imagen: no hay comparación')
+            return
+        os.makedirs(CARPETA_COMPARACION, exist_ok=True)
+        ruta: str = os.path.join(CARPETA_COMPARACION, NOMBRE_COMPARACION)
+        cv2.imwrite(ruta, self._ultima_comparacion)
+        self.get_logger().info(f'Comparación guardada en {ruta}')
 
 
 def main_ingesta() -> None:
@@ -187,13 +248,15 @@ def main_ingesta() -> None:
 
 
 def main_corregir() -> None:
-    """Tarea 4: corrige continuamente la imagen de la cámara hasta pulsar Ctrl+C."""
+    """Tarea 4: corrige la imagen de la cámara y, al pulsar Ctrl+C, guarda la comparación."""
     rclpy.init()
     nodo = CorrectorImagen()
     try:
         rclpy.spin(nodo)
     except KeyboardInterrupt:
         pass
+    # Se guarda la última comparación: basta con encuadrar la escena y pulsar Ctrl+C
+    nodo.guardar_comparacion()
     nodo.destroy_node()
     rclpy.try_shutdown()
 
