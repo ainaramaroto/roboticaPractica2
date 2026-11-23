@@ -1,7 +1,7 @@
 """Práctica 2: ingesta de imágenes (tarea 2) y corrección con la calibración (tarea 4)."""
 
 import os
-from typing import Optional
+from typing import List
 
 import cv2
 from cv_bridge import CvBridge
@@ -21,7 +21,7 @@ FORMATO_NOMBRE_IMAGEN: str = 'imagen_{:02d}.png'  # imagen_01.png, imagen_02.png
 # Diferencia media mínima entre píxeles (escala 0-255) para considerar dos imágenes
 # distintas. No se compara con 0 porque dos imágenes seguidas de una cámara quieta
 # nunca son idénticas: el ruido del sensor cambia ligeramente cada píxel
-UMBRAL_DIFERENCIA: float = 8.0
+UMBRAL_DIFERENCIA: float = 25.0
 
 
 # TAREA 2: suscriptor e ingesta de imágenes
@@ -34,7 +34,7 @@ class IngestaImagenes(Node):
         os.makedirs(CARPETA_IMAGENES, exist_ok=True)
         # Puente entre los mensajes Image de ROS y las imágenes (matrices) de OpenCV
         self._puente: CvBridge = CvBridge()
-        self._ultima_guardada: Optional[np.ndarray] = None
+        self._imagenes_grises: List[np.ndarray] = []  # las ya guardadas, en gris
         self._imagenes_guardadas: int = 0
         self.create_subscription(Image, TOPIC_IMAGEN, self._recibir_imagen, TAMANO_COLA)
         self.get_logger().info(
@@ -47,7 +47,7 @@ class IngestaImagenes(Node):
         return self._imagenes_guardadas >= NUMERO_IMAGENES
 
     def _recibir_imagen(self, mensaje: Image) -> None:
-        """Convierte la imagen a OpenCV y la guarda si es diferente de la anterior."""
+        """Convierte la imagen a OpenCV y la guarda si es diferente de las anteriores."""
         if self.terminado:
             return
         imagen: np.ndarray = self._puente.imgmsg_to_cv2(
@@ -57,14 +57,14 @@ class IngestaImagenes(Node):
             self._guardar(imagen)
 
     def _es_diferente(self, imagen: np.ndarray) -> bool:
-        """Compara la imagen con la última guardada usando la diferencia media de píxeles."""
-        if self._ultima_guardada is None:
-            return True  # la primera imagen siempre se guarda
+        """Comprueba que la imagen se diferencia de todas las ya guardadas."""
         # Se compara en escala de grises: basta con la luminosidad y es más rápido
-        gris_actual: np.ndarray = cv2.cvtColor(imagen, cv2.COLOR_BGR2GRAY)
-        gris_anterior: np.ndarray = cv2.cvtColor(self._ultima_guardada, cv2.COLOR_BGR2GRAY)
-        diferencia: float = float(np.mean(cv2.absdiff(gris_actual, gris_anterior)))
-        return diferencia > UMBRAL_DIFERENCIA
+        gris: np.ndarray = cv2.cvtColor(imagen, cv2.COLOR_BGR2GRAY)
+        for guardada in self._imagenes_grises:
+            diferencia: float = float(np.mean(cv2.absdiff(gris, guardada)))
+            if diferencia <= UMBRAL_DIFERENCIA:
+                return False  # se parece demasiado a una que ya está guardada
+        return True  # la primera imagen siempre pasa, porque la lista está vacía
 
     def _guardar(self, imagen: np.ndarray) -> None:
         """Guarda la imagen en disco con un nombre numerado."""
@@ -72,7 +72,7 @@ class IngestaImagenes(Node):
         nombre: str = FORMATO_NOMBRE_IMAGEN.format(self._imagenes_guardadas)
         ruta: str = os.path.join(CARPETA_IMAGENES, nombre)
         cv2.imwrite(ruta, imagen)
-        self._ultima_guardada = imagen
+        self._imagenes_grises.append(cv2.cvtColor(imagen, cv2.COLOR_BGR2GRAY))
         self.get_logger().info(
             f'Imagen {self._imagenes_guardadas}/{NUMERO_IMAGENES} guardada en {ruta}'
         )
@@ -95,4 +95,3 @@ def main_ingesta() -> None:
 
 if __name__ == '__main__':
     main_ingesta()
-    
