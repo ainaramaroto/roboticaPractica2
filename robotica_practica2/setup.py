@@ -1,5 +1,5 @@
-import os
 from glob import glob
+import os
 
 from setuptools import find_packages, setup
 
@@ -20,7 +20,7 @@ setup(
     zip_safe=True,
     maintainer='Ainara Maroto',
     maintainer_email='ainara.maroto@opendeusto.es',
-    description='TODO: Package description',
+    description='Práctica 2: ingesta, calibración y corrección de imágenes con ROS 2',
     license='MIT',
     extras_require={
         'test': [
