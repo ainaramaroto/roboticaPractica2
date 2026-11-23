@@ -29,6 +29,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'ingesta = robotica_practica2.practica2:main_ingesta',
         ],
     },
 )
