@@ -7,7 +7,8 @@
     frame_id: 'camara'               # sistema de referencia de las imágenes
     pixel_format: 'mjpeg2rgb'        # la cámara envía MJPEG y se convierte a RGB
     av_device_format: 'YUV422P'
-    image_width: 640
-    image_height: 480
-    camera_name: 'camara_practica2'  # debe coincidir con el nombre de la calibración (Tarea 3)
-    camera_info_url: ''              # se rellenará en la Tarea 3 con el archivo de calibración
+    image_width: 1280                # misma resolución que la calibración
+    image_height: 720
+    camera_name: 'camara_practica2'  # debe coincidir con camera_name de la calibración
+    # Archivo de calibración (Tarea 3): usb_cam lo publica en /camera_info
+    camera_info_url: 'package://robotica_practica2/config/calibracion_camara.yaml'
